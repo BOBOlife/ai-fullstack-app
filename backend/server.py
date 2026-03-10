@@ -1,11 +1,14 @@
-from time import process_time
-from fastapi import FastAPI, Request
-from typing import Optional, List
-import re
-from pydantic import BaseModel, Field, validator
+import json 
+import asyncio
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
+from llm_app import LLMApp
+from datetime import datetime
+from models import HealthResponse, ChatRequest
 
-app = FastAPI()
+
+app = FastAPI(title="AI 对话助手", version="1.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # 允许所有来源
@@ -14,74 +17,58 @@ app.add_middleware(
     allow_credentials=True,  # 允许携带凭证（如Cookies）
 )
 
+# 全局 LLMApp 实例
+llm_app = None
+
+@app.on_event("startup")
+async def startup_event():
+    global llm_app
+    try:
+        print("正在初始化 LLMApp...")
+        llm_app = LLMApp()  # 在应用启动时初始化 LLMApp 实例
+        print("LLMApp 初始化成功")
+    except Exception as e:
+        print(f"LLMApp 初始化失败: {e}")
+        raise HTTPException(status_code=500, detail="LLMApp 初始化失败")
+
+@app.get("/api/health")
+async def health_check():
+    return HealthResponse(
+        status="healthy" if llm_app else "unhealthy",
+        model="deepseek-chat",
+        api_configured=llm_app is not None,
+        timestamp=datetime.now().isoformat()
+    )
+
 @app.get("/")
 def read_root():
     return {"message": "环境运行成功"}
 
-@app.get("/hello")
-def read_hello():
-    return {"message": "Hello, World!"}
+@app.post("/api/chat/stream")
+async def chat_stream(request: ChatRequest):
+    if not llm_app:
+        raise HTTPException(status_code=503, detail="LLMApp 未初始化")
+    async def generate():
+        try:
+            # 1. 发送开始事件
+            yield f"data: {json.dumps({'type': 'start'})}\n\n"
+            await asyncio.sleep(0.01)  # 让出控制权，以便运行其他任务
+            full_response = ""
+            # 2. 生成并发送token
+            # 注意：llm_app.stream_chat 是同步生成器，但在 FastAPI 中可以正常工作            
+            # 如果需要完全异步，需要使用 AsyncChatOpenAI，这里为了简单保持同步调用
+            for token in llm_app.stream_chat(request.message, request.conversation_history):
+                full_response += token
+                yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
+                await asyncio.sleep(0.01)  # 模拟生成token的时间
+                print(f"Generated token: {token}")  # 调试输出
+            # 3. 发送结束事件
+            yield f"data: {json.dumps({'type': 'end', 'full_response': full_response})}\n\n"
+        except Exception as e:
+            print(f"Error in chat_stream: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+    return StreamingResponse(generate(), media_type="text/event-stream")
 
-@app.get("/items/{id}")
-def read_item(
-    id: int,
-    limit: int = 10,    #默认值为10
-    q: Optional[str] = None, #可选参数q，类型为字符串，默认值为None
-    short : bool = False,   #布尔类型参数short，默认值为False
-    tags: List[str] = []  #列表类型参数tags，默认值为空列表
-):
-    item = { "id": id, "limit": limit, "tags": tags}
-    if q:
-        item.update({"q": q})
-    if not short:
-        item.update({"desc": "长说明"})
-    return item
-
-
-# 请求体（Request Body）
-class UserRequest(BaseModel):  
-    username:str= Field(..., min_length=3, max_length=50)  
-    password:str  
-    email:str  
-    @validator('username')
-    def username_alphanumeric(cls, v):  
-        if not re.match('^[a-zA-Z0-9_]+$', v):
-            raise ValueError('只能包含字母、数字和下划线')   
-        return v  
-    @validator('email') 
-    def email_valid(cls, v):   
-        if '@' not in v:     
-            raise ValueError('无效的邮箱地址')   
-        return v.lower() # 转换为小写  
-    @validator('password') 
-    def password_strong(cls, v):   
-        if len(v) <6:     
-            raise ValueError('密码至少6位')   
-        return v 
-
-# 响应模型（Response Model）
-class UserResponse(BaseModel):  
-    username:str  
-    email:str
-
-@app.post("/user/", response_model=UserResponse)
-async def create_user(user: UserRequest): # 密码会被过滤，不会出现在响应中 
-    return user
-
-
-@app.middleware("http")
-async def add_process_time_header(request: Request, call_next):
-    response = await call_next(request)
-    response.headers["X-Process-Time"] = str(process_time())
-    print(f"处理请求 {request.url.path} 的时间: {str(process_time())} 秒")
-    return response  # 模
-
-
-
-
-
-# 程序的入口点
-
-if __name__ == "__main__":  
-    import uvicorn   
-    uvicorn.run("server:app", host="127.0.0.1", port=3000, reload=True)  # 启动服务器，监听
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("server:app", host="127.0.0.1", port=8080, reload=True)
