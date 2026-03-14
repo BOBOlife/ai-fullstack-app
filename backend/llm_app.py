@@ -5,7 +5,7 @@ from langchain_openai import ChatOpenAI
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
-load_dotenv() # 加载环境变量
+load_dotenv()  # 加载环境变量
 
 class LLMApp:
     def __init__(self, model_name: str = "deepseek-chat", temperature: float = 0.7):
