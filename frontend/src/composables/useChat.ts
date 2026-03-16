@@ -14,7 +14,7 @@ export function useChat() {
    */
   const scrollToBottom = () => {
     nextTick(() => {
-      const chatContainer = document.getElementById("chat-container");
+      const chatContainer = document.getElementById(".message-list");
       if (chatContainer) {
         chatContainer.scrollTo({
           top: chatContainer.scrollHeight,

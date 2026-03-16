@@ -1,7 +1,8 @@
 import type { ChatRequest, SSEEvent } from "../types/chat";
 
 const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:8080";
+console.log("🐸🔥 ~ API_BASE_URL:", API_BASE_URL);
 
 export class ChatAPI {
   /**
@@ -20,7 +21,7 @@ export class ChatAPI {
     const signal = controller.signal;
     const fetchStream = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/chat`, {
+        const response = await fetch(`${API_BASE_URL}/api/chat/stream`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
